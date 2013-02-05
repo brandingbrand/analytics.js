@@ -28,6 +28,12 @@
         // before navigating away from the current page.
         timeout : 300,
 
+        // Transaction
+        // -----------
+
+        // Object of transaction data to track
+        transaction : {},
+
 
         // Providers
         // ---------
@@ -84,6 +90,30 @@
             if (userId) this.identify(userId);
             var event = this.utils.getUrlParameter(window.location.search, 'ajs_event');
             if (event) this.track(event);
+
+            // Transaction
+            if (typeof sessionStorage.transaction === 'undefined') {
+                // Set default values if a transaction is not in sessionStorage
+                this.transaction = {
+                    id: null,
+                    store: null,
+                    products: [],
+                    summary: {
+                        total: null,
+                        tax: '',
+                        shipping: ''
+                    },
+                    location: {
+                        city: '',
+                        state: '',
+                        country: ''
+                    }
+                };
+            } else {
+                // sessionStorage only allows strings to be stored,
+                // so we must parse the JSON before using it
+                this.transaction = JSON.parse(sessionStorage.transaction);
+            }
         },
 
 
@@ -357,6 +387,42 @@
             }
         },
 
+        // Save Transaction
+        // ----------------
+
+        save : function (method) {
+            var methods = {
+                items : function () {
+                    analytics.transaction.products = [];
+                    for (var i = 1; i < arguments.length; i++) {
+                        if (arguments[i]) analytics.transaction.products.push(arguments[i]);
+                    }
+                },
+                summary : function () {
+                    analytics.transaction.summary = {
+                        total:    arguments[1] || analytics.transaction.summary.total,
+                        tax:      arguments[2] || analytics.transaction.summary.tax,
+                        shipping: arguments[3] || analytics.transaction.summary.shipping
+                    }
+                },
+                location : function () {
+                    analytics.transaction.location = {
+                        city:     arguments[1] || analytics.transaction.location.city,
+                        state:    arguments[2] || analytics.transaction.location.state,
+                        country:  arguments[3] || analytics.transaction.location.country
+                    }
+                },
+                receipt : function () {
+                    analytics.transaction.id    = arguments[1] || analytics.transaction.id;
+                    analytics.transaction.store = arguments[2] || analytics.transaction.store;
+                },
+                transaction : function () {
+                    sessionStorage.transaction = JSON.stringify(analytics.transaction);
+                }
+            };
+            methods[method].apply(this, arguments);
+        },
+
 
         // Utils
         // -----
@@ -418,8 +484,14 @@
             // mangled by different analytics providers because of the
             // reference.
             clone : function (obj) {
-                if (!obj) return;
-                return this.extend({}, obj);
+                var clone = obj, key;
+                if (obj && typeof obj === 'object') {
+                    clone = Object.prototype.toString.call(obj) === '[object Array]' ? [] : {};
+                    for (key in obj) {
+                      clone[key] = this.clone(obj[key]);
+                    }
+                }
+                return clone;
             },
 
             // A helper to alias certain object's keys to different key names.
