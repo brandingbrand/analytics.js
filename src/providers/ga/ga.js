@@ -27,19 +27,21 @@ analytics.addProvider('Google Analytics', {
         analytics.utils.extend(this.settings, settings);
 
         var _gaq = window._gaq = window._gaq || [];
-        _gaq.push(['_setAccount', this.settings.trackingId]);
+
+        this.setAccounts();
+
         if(this.settings.domain) {
-            _gaq.push(['_setDomainName', this.settings.domain]);
+            this.push(['_setDomainName', this.settings.domain]);
         }
         if (this.settings.enhancedLinkAttribution) {
             var pluginUrl = (('https:' === document.location.protocol) ? 'https://www.' : 'http://www.') + 'google-analytics.com/plugins/ga/inpage_linkid.js';
-            _gaq.push(['_require', 'inpage_linkid', pluginUrl]);
+            this.push(['_require', 'inpage_linkid', pluginUrl]);
         }
         if (analytics.utils.isNumber(this.settings.siteSpeedSampleRate)) {
-            _gaq.push(['_setSiteSpeedSampleRate', this.settings.siteSpeedSampleRate]);
+            this.push(['_setSiteSpeedSampleRate', this.settings.siteSpeedSampleRate]);
         }
         if(this.settings.anonymizeIp) {
-            _gaq.push(['_gat._anonymizeIp']);
+            this.push(['_gat._anonymizeIp']);
         }
 
         // Check to see if there is a canonical meta tag to use as the URL.
@@ -49,7 +51,7 @@ analytics.addProvider('Google Analytics', {
                 canonicalUrl = analytics.utils.parseUrl(tag.getAttribute('href')).pathname;
             }
         }
-        _gaq.push(['_trackPageview', canonicalUrl]);
+        this.push(['_trackPageview', canonicalUrl]);
 
         (function() {
             var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
@@ -58,6 +60,39 @@ analytics.addProvider('Google Analytics', {
         })();
     },
 
+    // Set Account IDs
+    // ---------------
+
+    setAccounts: function () {
+        var trackingIds = this.settings.trackingId;
+        if (typeof trackingIds === 'object') {
+            Object.keys(trackingIds).forEach(function (id) {
+                _gaq.push([id + '._setAccount', trackingIds[id]]);
+            });
+        } else {
+            _gaq.push(['_setAccount', trackingIds]);
+        }
+    },
+
+    // Push to all trackers
+    // --------------------
+
+    push: function (method, trackingId) {
+        if (typeof this.settings.trackingId === 'object') {
+            if (trackingId) {
+                method[0] = trackingId + '.' + method[0];
+                window._gaq.push(method);
+            } else {
+                Object.keys(this.settings.trackingId).forEach(function (id) {
+                    var clonedMethod = analytics.utils.clone(method);
+                    clonedMethod[0] = id + '.' + clonedMethod[0]
+                    window._gaq.push(clonedMethod);
+                });
+            }
+        } else {
+            window._gaq.push(method);
+        }
+    },
 
     // Track
     // -----
@@ -65,23 +100,52 @@ analytics.addProvider('Google Analytics', {
     track : function (event, properties) {
         properties || (properties = {});
 
-        var value;
+        var value,
+            transaction = analytics.transaction;
 
         // Since value is a common property name, ensure it is a number
         if (analytics.utils.isNumber(properties.value)) value = properties.value;
+
+        if (event === 'Transaction') {
+            this.push(['_addTrans',
+                transaction.id,
+                transaction.store,
+                transaction.summary.total,
+                transaction.summary.tax,
+                transaction.summary.shipping,
+                transaction.location.city,
+                transaction.location.state,
+                transaction.location.country
+            ], properties.trackingId);
+
+            for (var i = 0; i < transaction.products.length; i++) {
+                var product = transaction.products[i];
+                this.push(['_addItem',
+                    transaction.id,
+                    product.sku,
+                    product.name,
+                    product.category,
+                    product.price,
+                    product.quantity
+                ], properties.trackingId);
+            }
+
+            this.push(['_trackTrans'], properties.trackingId);
+            delete sessionStorage.transaction;
+        }
 
         // Try to check for a `category` and `label`. A `category` is required,
         // so if it's not there we use `'All'` as a default. We can safely push
         // undefined if the special properties don't exist. Try using revenue
         // first, but fall back to a generic `value` as well.
-        window._gaq.push([
+        this.push([
             '_trackEvent',
             properties.category || 'All',
             event,
             properties.label,
             Math.round(properties.revenue) || value,
             properties.noninteraction
-        ]);
+        ], properties.trackingId);
     },
 
 
@@ -90,7 +154,7 @@ analytics.addProvider('Google Analytics', {
 
     pageview : function (url) {
         // If there isn't a url, that's fine.
-        window._gaq.push(['_trackPageview', url]);
+        this.push(['_trackPageview', url]);
     }
 
 });
